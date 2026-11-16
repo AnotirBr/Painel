@@ -70,18 +70,28 @@ label{display:block;font-size:14px;color:var(--mut);margin:10px 0 4px}
 <div class="row"><button type="button" id="x1">Cancelar</button><button class="pri" id="ok">Salvar cliente</button></div>
 </form></dialog>
 
+<dialog id="dp"><b>Cobrança com Pix</b>
+<div id="qr" style="text-align:center;margin:12px 0"></div>
+<textarea id="cc" rows="4" readonly></textarea>
+<div class="row" style="flex-wrap:wrap"><button type="button" id="x3">Fechar</button><button type="button" id="cp">Copiar código</button><button type="button" class="wa" id="pw">Enviar no WhatsApp</button></div>
+</dialog>
+
 <dialog id="dg"><form method="dialog">
 <b>Configurações</b>
 <label for="tx">Taxa de manutenção por cliente (R$)</label><input id="tx" type="number" step="0.01" min="0">
 <label for="ms">Mensagem de cobrança</label>
 <textarea id="ms" rows="5"></textarea>
 <small style="color:var(--mut)">Use {nome}, {valor} e {data}; eles são trocados em cada cliente.</small>
+<label for="pk">Sua chave Pix (CPF/CNPJ só números, celular com +55, e-mail ou aleatória)</label><input id="pk" autocomplete="off">
+<label for="pn">Nome que aparece no Pix (até 25 letras)</label><input id="pn" maxlength="25">
+<label for="pc">Cidade (até 15 letras)</label><input id="pc" maxlength="15">
 <label>Alertas e backup</label>
 <div class="act" style="margin-top:0"><button type="button" id="nt">Ativar notificações</button><button type="button" id="ex">Exportar backup</button><button type="button" id="im">Importar backup</button></div>
 <input type="file" id="fi" accept="application/json" hidden>
 <div class="row"><button type="button" id="x2">Cancelar</button><button class="pri" id="sv">Salvar</button></div>
 </form></dialog>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const K='painel-clientes-v1';
@@ -110,12 +120,13 @@ const bruto=L.reduce((s,c)=>s+c.valor,0),taxa=L.length*S.taxa;
 $('sum').innerHTML=`<div><small>Clientes</small><b>${L.length}</b></div><div><small>Total bruto</small><b>${brl(bruto)}</b></div><div><small>Taxa (${brl(S.taxa)} × ${L.length})</small><b>${brl(taxa)}</b></div><div><small>Pagamentos vencidos</small><b>${L.filter(c=>dias(c.data)<0).length}</b></div><div class="liq"><small>Líquido (bruto menos taxa)</small><b>${brl(bruto-taxa)}</b></div>`;
 const A=L.filter(c=>dias(c.data)<=3);
 $('alerts').innerHTML=A.map(c=>{const[k,t]=stTxt(c);return`<div class="al ${k=='r'?'r':''}"><b>${esc(c.nome)}</b>: ${t.split(' · ')[0].toLowerCase()} (${brl(c.valor)})</div>`}).join('');
-$('lista').innerHTML=L.length?L.map(c=>{const[k,t]=stTxt(c);return`<div class="cl"><div class="top"><div><div class="nm">${esc(c.nome)}</div><div class="st ${k}">${t}</div></div><div class="val">${brl(c.valor)}</div></div><div class="act"><button class="wa" data-a="wa" data-i="${c.id}">Cobrar no WhatsApp</button><button data-a="pg" data-i="${c.id}">Marcar como pago</button><button data-a="ed" data-i="${c.id}">Editar</button><button data-a="rm" data-i="${c.id}">Excluir</button></div></div>`}).join(''):'<div class="empty">Nenhum cliente ainda. Toque em “Adicionar cliente” para começar.</div>'}
+$('lista').innerHTML=L.length?L.map(c=>{const[k,t]=stTxt(c);return`<div class="cl"><div class="top"><div><div class="nm">${esc(c.nome)}</div><div class="st ${k}">${t}</div></div><div class="val">${brl(c.valor)}</div></div><div class="act"><button class="wa" data-a="wa" data-i="${c.id}">Cobrar no WhatsApp</button><button data-a="px" data-i="${c.id}">Pix</button><button data-a="pg" data-i="${c.id}">Marcar como pago</button><button data-a="ed" data-i="${c.id}">Editar</button><button data-a="rm" data-i="${c.id}">Excluir</button></div></div>`}).join(''):'<div class="empty">Nenhum cliente ainda. Toque em “Adicionar cliente” para começar.</div>'}
 function tel(t){let d=t.replace(/\D/g,'');if(d.length<=11)d='55'+d;return d}
 function texto(c){return S.msg.replace(/{nome}/g,c.nome.split(' ')[0]).replace(/{valor}/g,brl(c.valor)).replace(/{data}/g,br(c.data))}
 $('lista').onclick=e=>{const b=e.target.closest('button');if(!b)return;
 const c=S.clientes.find(x=>x.id==b.dataset.i);if(!c)return;
 if(b.dataset.a=='wa')window.open('https://wa.me/'+tel(c.tel)+'?text='+encodeURIComponent(texto(c)),'_blank');
+if(b.dataset.a=='px')abrirPix(c);
 if(b.dataset.a=='pg'){c.data=mais1(c.data);save();render()}
 if(b.dataset.a=='rm'&&confirm('Excluir '+c.nome+'?')){S.clientes=S.clientes.filter(x=>x!==c);save();render()}
 if(b.dataset.a=='ed'){edit=c.id;$('dt').textContent='Editar cliente';$('n').value=c.nome;$('t').value=c.tel;$('v').value=c.valor;$('d').value=c.data;$('dc').showModal()}};
@@ -125,9 +136,9 @@ $('fc').onsubmit=e=>{if(!$('fc').checkValidity())return;
 const o={nome:$('n').value.trim(),tel:$('t').value.trim(),valor:parseFloat($('v').value)||0,data:$('d').value};
 if(edit)Object.assign(S.clientes.find(x=>x.id==edit),o);else S.clientes.push({id:Date.now(),...o});
 save();render()};
-$('cfg').onclick=()=>{$('tx').value=S.taxa;$('ms').value=S.msg;$('dg').showModal()};
+$('cfg').onclick=()=>{$('pk').value=S.pk||'';$('pn').value=S.pn||'';$('pc').value=S.pc||'';$('tx').value=S.taxa;$('ms').value=S.msg;$('dg').showModal()};
 $('x2').onclick=()=>$('dg').close();
-$('sv').onclick=()=>{S.taxa=parseFloat($('tx').value)||0;S.msg=$('ms').value.trim()||MSG0;save();render()};
+$('sv').onclick=()=>{S.pk=$('pk').value.trim();S.pn=$('pn').value.trim();S.pc=$('pc').value.trim();S.taxa=parseFloat($('tx').value)||0;S.msg=$('ms').value.trim()||MSG0;save();render()};
 
 $('ex').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='clientes-'+iso(hoje())+'.json';a.click()};
 $('im').onclick=()=>$('fi').click();
@@ -145,6 +156,22 @@ try{reg?reg.showNotification(t,{body,icon:'icon.svg',tag:'cobranca'}):new Notifi
 L.forEach(c=>S.notif[c.id]=h+c.data);save()}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 if($('nt')&&'Notification' in window&&Notification.permission=='granted')$('nt').textContent='Notificações ativadas';
+
+const tl=(id,v)=>id+String(v.length).padStart(2,'0')+v;
+const lim=(t,n)=>t.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9 ]/g,'').toUpperCase().slice(0,n);
+function crc(str){let c=0xFFFF;for(let i=0;i<str.length;i++){c^=str.charCodeAt(i)<<8;for(let j=0;j<8;j++)c=c&0x8000?((c<<1)^0x1021)&0xFFFF:(c<<1)&0xFFFF}return c.toString(16).toUpperCase().padStart(4,'0')}
+function pixCode(valor){let p=tl('00','01')+tl('26',tl('00','br.gov.bcb.pix')+tl('01',S.pk))+tl('52','0000')+tl('53','986');
+if(valor>0)p+=tl('54',valor.toFixed(2));
+p+=tl('58','BR')+tl('59',lim(S.pn||'',25)||'RECEBEDOR')+tl('60',lim(S.pc||'',15)||'BRASIL')+tl('62',tl('05','***'))+'6304';
+return p+crc(p)}
+let pixC=null;
+function abrirPix(c){if(!S.pk){alert('Cadastre sua chave Pix em Configurar.');return}
+pixC=c;const code=pixCode(c.valor);$('cc').value=code;
+try{const q=qrcode(0,'M');q.addData(code);q.make();$('qr').innerHTML=q.createImgTag(5,10)}catch(e){$('qr').textContent='Não foi possível gerar o QR agora (precisa de internet na primeira vez). Use o copia e cola.'}
+$('dp').showModal()}
+$('x3').onclick=()=>$('dp').close();
+$('cp').onclick=async()=>{try{await navigator.clipboard.writeText($('cc').value)}catch(e){$('cc').select();document.execCommand('copy')}$('cp').textContent='Copiado';setTimeout(()=>$('cp').textContent='Copiar código',1500)};
+$('pw').onclick=()=>window.open('https://wa.me/'+tel(pixC.tel)+'?text='+encodeURIComponent(texto(pixC)+'\n\nPix copia e cola:\n'+$('cc').value),'_blank');
 render();avisar();setInterval(()=>{render();avisar()},600000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){render();avisar()}});
 </script>
